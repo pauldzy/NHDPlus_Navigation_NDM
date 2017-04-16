@@ -1,5 +1,5 @@
 # NHDPlus Navigation using Oracle NDM
-####An alternative prototype using [Oracle Network Data Model](http://docs.oracle.com/database/121/TOPOL/sdo_net_concepts.htm#TOPOL700) for stream navigation.
+#### An alternative prototype using [Oracle Network Data Model](http://docs.oracle.com/database/121/TOPOL/sdo_net_concepts.htm#TOPOL700) for stream navigation.
 
 The [National Hydrology Dataset Plus](http://www.horizon-systems.com/NHDPlus/NHDPlusV2_home.php) has provided [an engine](http://www.horizon-systems.com/NHDPlus/NHDPlusV2_tools.php#NHDPlusV2 VAA Navigator Toolbar) for stream navigation for well over a decade.  This engine subsequently was ported into Oracle and provided as public service as an [EPA Office of Water service](https://www.epa.gov/waterdata/navigation-service).  See [this codepen](http://codepen.io/pauldzy/pen/LVoBpj) to view the current EPA service in action.
 
