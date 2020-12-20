@@ -18,7 +18,7 @@ AS
       --------------------------------------------------------------------------
       IF time_flush_time IS NULL
       THEN
-         time_flush_time := SYSTIMESTAMP - (12/24);
+         time_flush_time := SYSTIMESTAMP - c_retention;
 
       END IF;
 
@@ -34,35 +34,57 @@ AS
       WHERE
       a.session_datestamp < time_flush_time;
 
-      IF ary_guids IS NULL
-      OR ary_guids.COUNT = 0
-      THEN
-         RETURN;
-         
-      END IF;
-
       --------------------------------------------------------------------------
       -- Step 30
-      -- Delete the status records
+      -- Delete the status records with very frequent commits
       --------------------------------------------------------------------------
-      DELETE FROM
-      nhdplus_navigation2.tmp_navigation_status a
-      WHERE
-      a.session_id IN (SELECT * FROM TABLE(ary_guids));
+      FOR i IN 1 .. ary_guids.COUNT
+      LOOP
+         DELETE FROM
+         nhdplus_navigation2.tmp_navigation_results a
+         WHERE
+         a.session_id = ary_guids(i);
+         
+         DELETE FROM
+         nhdplus_navigation2.tmp_catchments a
+         WHERE
+         a.session_id = ary_guids(i);
+         
+         COMMIT;
+         
+      END LOOP;
 
       --------------------------------------------------------------------------
       -- Step 40
-      -- Delete the catchment records
+      -- Delete the status records
+      --------------------------------------------------------------------------
+      FOR i IN 1 .. ary_guids.COUNT
+      LOOP
+         DELETE FROM
+         nhdplus_navigation2.tmp_navigation_status a
+         WHERE
+         a.session_id = ary_guids(i);
+         
+      END LOOP;
+
+      COMMIT;
+      
+      --------------------------------------------------------------------------
+      -- Step 50
+      -- Delete any orphaned records from interrupted cleanup
       --------------------------------------------------------------------------
       DELETE FROM
       nhdplus_navigation2.tmp_navigation_results a
       WHERE
-      a.session_id IN (SELECT * FROM TABLE(ary_guids));
-
-      --------------------------------------------------------------------------
-      -- Step 50
-      -- Commit the removals
-      --------------------------------------------------------------------------
+      NOT EXISTS(
+         SELECT
+         1
+         FROM
+         nhdplus_navigation2.tmp_navigation_status b
+         WHERE 
+         b.session_id = a.session_id  
+      );
+         
       COMMIT;
 
    END flush_temp_tables;
@@ -95,7 +117,7 @@ AS
          ,job_action          => 'nhdplus_navigation2.flusher.flush_temp_tables'
          ,number_of_arguments => 0
          ,start_date          => sysdate +1/24/59 -- sysdate + 1 minute
-         ,repeat_interval     => 'freq=DAILY;interval=1'
+         ,repeat_interval     => c_job_frequency
          ,enabled             => TRUE
          ,auto_drop           => TRUE
          ,comments            => 'Flush Temp Tables'

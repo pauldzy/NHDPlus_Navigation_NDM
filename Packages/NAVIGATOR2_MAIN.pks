@@ -29,35 +29,44 @@ AS
    
    TYPE flowline_rec IS RECORD(
        permanent_identifier VARCHAR2(40 Char)
-      ,nhdplus_comid        INTEGER
+      ,nhdplusid            NUMBER(19)
       ,reachcode            VARCHAR2(14 Char)
       ,fmeasure             NUMBER
       ,tmeasure             NUMBER
-      ,hydroseq             INTEGER
+      ,hydrosequence        NUMBER(19)
       ,pt_measure           NUMBER
       ,pt_percentage        NUMBER
       ,fromnode             INTEGER
       ,tonode               INTEGER
-      ,uphydroseq           INTEGER
-      ,dnhydroseq           INTEGER
+      ,uphydrosequence      NUMBER(19)
+      ,downhydrosequence    NUMBER(19)
+      ,fcode                INTEGER
    );
    
    -----------------------------------------------------------------------------
    -----------------------------------------------------------------------------
    FUNCTION traceOutLight_java(
-       pStartLinkID     IN  NUMBER
+       pNetworkName     IN  VARCHAR2
+      ,pStartLinkID     IN  NUMBER
       ,pStartPercentage IN  NUMBER
       ,pStartNodeID     IN  NUMBER
       ,pCostThreshold   IN  NUMBER
    ) RETURN NUMBER
    AS
    LANGUAGE JAVA NAME 
-   'navigator2_main.traceOutLight(oracle.sql.NUMBER,oracle.sql.NUMBER,oracle.sql.NUMBER,oracle.sql.NUMBER) return oracle.sql.NUMBER';
+   'navigator2_main.traceOutLight(
+       oracle.sql.CHAR
+      ,oracle.sql.NUMBER
+      ,oracle.sql.NUMBER
+      ,oracle.sql.NUMBER
+      ,oracle.sql.NUMBER
+   ) return oracle.sql.NUMBER';
    
    -----------------------------------------------------------------------------
    -----------------------------------------------------------------------------
    FUNCTION traceOutLight(
-       pStartLinkID     IN  NUMBER
+       pNetworkName     IN  VARCHAR2
+      ,pStartLinkID     IN  NUMBER
       ,pStartPercentage IN  NUMBER
       ,pStartNodeID     IN  NUMBER
       ,pCostThreshold   IN  NUMBER
@@ -66,19 +75,27 @@ AS
    -----------------------------------------------------------------------------
    -----------------------------------------------------------------------------
    FUNCTION traceInLight_java(
-       pStartLinkID     IN  NUMBER
+       pNetworkName     IN  VARCHAR2
+      ,pStartLinkID     IN  NUMBER
       ,pStartPercentage IN  NUMBER
       ,pStartNodeID     IN  NUMBER
       ,pCostThreshold   IN  NUMBER
    ) RETURN NUMBER
    AS
    LANGUAGE JAVA NAME 
-   'navigator2_main.traceInLight(oracle.sql.NUMBER,oracle.sql.NUMBER,oracle.sql.NUMBER,oracle.sql.NUMBER) return oracle.sql.NUMBER';
+   'navigator2_main.traceInLight(
+       oracle.sql.CHAR
+      ,oracle.sql.NUMBER
+      ,oracle.sql.NUMBER
+      ,oracle.sql.NUMBER
+      ,oracle.sql.NUMBER
+   ) return oracle.sql.NUMBER';
    
    -----------------------------------------------------------------------------
    -----------------------------------------------------------------------------
    FUNCTION traceInLight(
-       pStartLinkID     IN  NUMBER
+       pNetworkName     IN  VARCHAR2
+      ,pStartLinkID     IN  NUMBER
       ,pStartPercentage IN  NUMBER
       ,pStartNodeID     IN  NUMBER
       ,pCostThreshold   IN  NUMBER
@@ -87,19 +104,27 @@ AS
    -----------------------------------------------------------------------------
    -----------------------------------------------------------------------------
    FUNCTION traceOutLight_java_mainstem(
-       pStartLinkID     IN  NUMBER
+       pNetworkName     IN  VARCHAR2
+      ,pStartLinkID     IN  NUMBER
       ,pStartPercentage IN  NUMBER
       ,pStartNodeID     IN  NUMBER
       ,pCostThreshold   IN  NUMBER
    ) RETURN NUMBER
    AS
    LANGUAGE JAVA NAME 
-   'navigator2_main.traceOutLight_mainstem(oracle.sql.NUMBER,oracle.sql.NUMBER,oracle.sql.NUMBER,oracle.sql.NUMBER) return oracle.sql.NUMBER';
+   'navigator2_main.traceOutLight_mainstem(
+       oracle.sql.CHAR
+      ,oracle.sql.NUMBER
+      ,oracle.sql.NUMBER
+      ,oracle.sql.NUMBER
+      ,oracle.sql.NUMBER
+   ) return oracle.sql.NUMBER';
    
    -----------------------------------------------------------------------------
    -----------------------------------------------------------------------------
    FUNCTION traceOutLight_mainstem(
-       pStartLinkID     IN  NUMBER
+       pNetworkName     IN  VARCHAR2
+      ,pStartLinkID     IN  NUMBER
       ,pStartPercentage IN  NUMBER
       ,pStartNodeID     IN  NUMBER
       ,pCostThreshold   IN  NUMBER
@@ -108,19 +133,27 @@ AS
    -----------------------------------------------------------------------------
    -----------------------------------------------------------------------------
    FUNCTION traceInLight_java_mainstem(
-       pStartLinkID     IN  NUMBER
+       pNetworkName     IN  VARCHAR2
+      ,pStartLinkID     IN  NUMBER
       ,pStartPercentage IN  NUMBER
       ,pStartNodeID     IN  NUMBER
       ,pCostThreshold   IN  NUMBER
    ) RETURN NUMBER
    AS
    LANGUAGE JAVA NAME 
-   'navigator2_main.traceInLight_mainstem(oracle.sql.NUMBER,oracle.sql.NUMBER,oracle.sql.NUMBER,oracle.sql.NUMBER) return oracle.sql.NUMBER';
+   'navigator2_main.traceInLight_mainstem(
+       oracle.sql.CHAR
+      ,oracle.sql.NUMBER
+      ,oracle.sql.NUMBER
+      ,oracle.sql.NUMBER
+      ,oracle.sql.NUMBER
+   ) return oracle.sql.NUMBER';
    
    -----------------------------------------------------------------------------
    -----------------------------------------------------------------------------
    FUNCTION traceInLight_mainstem(
-       pStartLinkID     IN  NUMBER
+       pNetworkName     IN  VARCHAR2
+      ,pStartLinkID     IN  NUMBER
       ,pStartPercentage IN  NUMBER
       ,pStartNodeID     IN  NUMBER
       ,pCostThreshold   IN  NUMBER
@@ -129,7 +162,8 @@ AS
    -----------------------------------------------------------------------------
    -----------------------------------------------------------------------------
    FUNCTION shortestPath(
-       pStartLinkID     IN  NUMBER
+       pNetworkName     IN  VARCHAR2
+      ,pStartLinkID     IN  NUMBER
       ,pStartPercentage IN  NUMBER
       ,pStartNodeID     IN  NUMBER
       ,pStopLinkID      IN  NUMBER
@@ -137,7 +171,14 @@ AS
    ) RETURN NUMBER
    AS
    LANGUAGE JAVA NAME 
-   'navigator2_main.shortestPath(oracle.sql.NUMBER,oracle.sql.NUMBER,oracle.sql.NUMBER,oracle.sql.NUMBER,oracle.sql.NUMBER) return oracle.sql.NUMBER';
+   'navigator2_main.shortestPath(
+       oracle.sql.CHAR
+      ,oracle.sql.NUMBER
+      ,oracle.sql.NUMBER
+      ,oracle.sql.NUMBER
+      ,oracle.sql.NUMBER
+      ,oracle.sql.NUMBER
+   ) return oracle.sql.NUMBER';
 
    -----------------------------------------------------------------------------
    -----------------------------------------------------------------------------
@@ -201,19 +242,26 @@ AS
 
    */
    PROCEDURE navigate(
-       pNavigationType           IN  VARCHAR2
-      ,pStartPermanentIdentifier IN  VARCHAR2
-      ,pStartComid               IN  INTEGER
-      ,pStartReachcode           IN  VARCHAR2
-      ,pStartMeasure             IN  NUMBER
-      ,pStopPermanentIdentifier  IN  VARCHAR2
-      ,pStopComid                IN  INTEGER
-      ,pStopReachcode            IN  VARCHAR2
-      ,pStopMeasure              IN  NUMBER
-      ,pMaxDistanceKm            IN  NUMBER
-      ,pReturnCode               OUT NUMBER
-      ,pStatusMessage            OUT VARCHAR2
-      ,pSessionID                IN OUT VARCHAR2
+       pSearchType                    IN  VARCHAR2
+      ,pStartPermanentIdentifier      IN  VARCHAR2
+      ,pStartNHDPlusID                IN  INTEGER
+      ,pStartReachCode                IN  VARCHAR2
+      ,pStartHydroSequence            IN  INTEGER
+      ,pStartMeasure                  IN  NUMBER
+      ,pStopPermanentIdentifier       IN  VARCHAR2
+      ,pStopNHDPlusID                 IN  INTEGER
+      ,pStopReachCode                 IN  VARCHAR2
+      ,pStopHydroSequence             IN  INTEGER
+      ,pStopMeasure                   IN  NUMBER
+      ,pMaxDistanceKm                 IN  NUMBER
+      ,pMaxFlowTimeDay                IN  NUMBER
+      ,pReturnCatchments              IN  VARCHAR2 DEFAULT 'FALSE'
+      ,pLoadSearchTable               IN  VARCHAR2 DEFAULT 'FALSE'
+      ,pFlowlineCount                 OUT INTEGER
+      ,pCatchmentCount                OUT INTEGER
+      ,pReturnCode                    OUT INTEGER
+      ,pStatusMessage                 OUT VARCHAR2
+      ,pSessionID                     IN OUT VARCHAR2
    );
    
 END navigator2_main;

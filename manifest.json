@@ -1,0 +1,139 @@
+{
+    "constants": [
+       {
+          "key":   "JOBNAME"
+         ,"value": "NHDPlus_Navigation_NDM"
+       }
+      ,{
+          "key": "GITRELEASE"
+         ,"cmd": "git describe --abbrev=0 --tags"
+       }
+      ,{
+          "key": "GITCOMMIT"
+         ,"cmd": "git rev-parse master"
+       }
+      ,{
+          "key": "GITCOMMITDATE"
+         ,"cmd": "git show -s --format=%cd"
+       }
+      ,{
+          "key": "GITCOMMITAUTH"
+         ,"cmd": "git show -s --format=%an"
+       }
+    ]
+   ,"tasks": [
+       {
+          "id": "concatenate"
+         ,"output": "NHDPlus_Navigation_NDM_deploy.sql"
+         ,"includes": [
+             "%%SQLHEADER%%"
+            ,"Packages/NAVIGATOR2_UTIL.pks"
+            ,"Packages/NAVIGATOR2_UTIL.pkb"
+            ,"Actions/ASSEMBLE.sql"
+            ,"Packages/FLUSHER.pks"
+            ,"Packages/FLUSHER.pkb"
+            ,"Packages/NETWORK_BUILDER.pks"
+            ,"Packages/NETWORK_BUILDER.pkb"
+            ,"Java/NAVIGATOR2_MAIN.jvs"
+            ,"Procedures/FLUSH_ALL.prc"
+            ,"Packages/NAVIGATOR2_MAIN.pks"
+            ,"Packages/NAVIGATOR2_MAIN.pkb"
+            ,"Packages/TESTS.pks"
+            ,"Packages/TESTS.pkb"
+            ,"%%SQLFOOTER%%"
+          ]
+         ,"separator": "--******************************--\nPROMPT %%FILENAME%% \n\n"
+         ,"components": [
+             {
+                "identifier": "SQLHEADER"
+               ,"content": [
+                   "WHENEVER SQLERROR EXIT -99;"
+                  ,"WHENEVER OSERROR  EXIT -98;"
+                  ,"SET DEFINE OFF;"
+                  ,""
+                ]
+             }
+            ,{
+                "identifier": "SQLFOOTER"
+               ,"content": [
+                   "SHOW ERROR;"
+                  ,""
+                  ,"DECLARE"
+                  ,"   l_num_errors PLS_INTEGER;"
+                  ,""
+                  ,"BEGIN"
+                  ,""
+                  ,"   SELECT"
+                  ,"   COUNT(*)"
+                  ,"   INTO l_num_errors"
+                  ,"   FROM"
+                  ,"   user_errors a"
+                  ,""
+                  ,"   IF l_num_errors <> 0"
+                  ,"   THEN"
+                  ,"      RAISE_APPLICATION_ERROR(-20001,'COMPILE ERROR');"
+                  ,""
+                  ,"   END IF;"
+                  ,""
+                  ,"   l_num_errors := 0; --%JOBNAME%_TEST.inmemory_test();"
+                  ,""
+                  ,"   IF l_num_errors <> 0"
+                  ,"   THEN"
+                  ,"      RAISE_APPLICATION_ERROR(-20001,'INMEMORY TEST ERROR');"
+                  ,""
+                  ,"   END IF;"
+                  ,""
+                  ,"END;"
+                  ,"/"
+                  ,""
+                  ,"EXIT;"
+                  ,"SET DEFINE OFF;"
+                  ,""
+                ]
+             }
+          ]
+         ,"configurations": [
+            {
+                "id": 1
+               ,"file": "Packages/DZ_TOPO_TEST.pks"
+               ,"replacements": [
+                   {
+                      "string": "C_GITRELEASE    CONSTANT VARCHAR2(255 Char) := 'NULL';"
+                     ,"value":  "C_GITRELEASE    CONSTANT VARCHAR2(255 Char) := '%GITRELEASE%';"
+                   }
+                  ,{
+                      "string": "C_GITCOMMIT     CONSTANT VARCHAR2(255 Char) := 'NULL';"
+                     ,"value":  "C_GITCOMMIT     CONSTANT VARCHAR2(255 Char) := '%GITCOMMIT%';"
+                   }
+                  ,{
+                      "string": "C_GITCOMMITDATE CONSTANT VARCHAR2(255 Char) := 'NULL';"
+                     ,"value":  "C_GITCOMMITDATE CONSTANT VARCHAR2(255 Char) := '%GITCOMMITDATE%';"
+                   }
+                  ,{
+                      "string": "C_GITCOMMITAUTH CONSTANT VARCHAR2(255 Char) := 'NULL';"
+                     ,"value":  "C_GITCOMMITAUTH CONSTANT VARCHAR2(255 Char) := '%GITCOMMITAUTH%';"
+                   }
+                ]
+            }
+          ]
+       }
+      ,{
+          "id": "naturaldocs"
+         ,"input":  "NHDPlus_Navigation_NDM_deploy.sql"
+         ,"output_dir": "stage1"
+       }
+      ,{
+          "id": "wkhtmltopdf"
+         ,"input_dir": "stage1"
+         ,"output": "NHDPlus_Navigation_NDM_deploy.pdf"
+       }
+      ,{
+          "id": "artifacts"
+         ,"targets": [
+             "NHDPlus_Navigation_NDM_deploy.sql"
+            ,"NHDPlus_Navigation_NDM_deploy.pdf"
+         ]
+       }
+   ]
+}
+

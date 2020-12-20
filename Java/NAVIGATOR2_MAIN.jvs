@@ -13,25 +13,26 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import oracle.jdbc.OraclePreparedStatement;
 import oracle.jdbc.OracleDriver;
-import oracle.spatial.network.lod.PointOnNet;
-import oracle.spatial.network.lod.LODNetworkManager;
-import oracle.spatial.network.lod.NetworkIO;
-import oracle.spatial.network.lod.NetworkAnalyst;
-import oracle.spatial.network.lod.LODNetworkConstraint;
-import oracle.spatial.network.lod.LODAnalysisInfo;
-import oracle.spatial.network.lod.LogicalPath;
-import oracle.spatial.network.lod.LogicalSubPath;
-import oracle.spatial.network.lod.LogicalLightPath;
-import oracle.spatial.network.lod.LogicalLightSubPath;
-import oracle.spatial.network.lod.LogicalNode;
-import oracle.spatial.network.lod.LogicalLink;
-import oracle.spatial.network.lod.LogicalNetNode;
-import oracle.spatial.network.lod.LogicalNetLink;
+///////
 import oracle.spatial.network.lod.CategorizedUserData;
-import oracle.spatial.network.lod.LinkCostCalculator;
-import oracle.spatial.network.lod.NodeCostCalculator;
 import oracle.spatial.network.lod.DefaultLinkCostCalculator;
 import oracle.spatial.network.lod.DefaultNodeCostCalculator;
+import oracle.spatial.network.lod.LinkCostCalculator;
+import oracle.spatial.network.lod.LODAnalysisInfo;
+import oracle.spatial.network.lod.LODNetworkConstraint;
+import oracle.spatial.network.lod.LODNetworkManager;
+import oracle.spatial.network.lod.LogicalLightPath;
+import oracle.spatial.network.lod.LogicalLightSubPath;
+import oracle.spatial.network.lod.LogicalLink;
+import oracle.spatial.network.lod.LogicalNetLink;
+import oracle.spatial.network.lod.LogicalNetNode;
+import oracle.spatial.network.lod.LogicalNode;
+import oracle.spatial.network.lod.LogicalPath;
+import oracle.spatial.network.lod.LogicalSubPath;
+import oracle.spatial.network.lod.NetworkAnalyst;
+import oracle.spatial.network.lod.NetworkIO;
+import oracle.spatial.network.lod.NodeCostCalculator;
+import oracle.spatial.network.lod.PointOnNet;
 
 public class navigator2_main {
 
@@ -94,16 +95,16 @@ public class navigator2_main {
    /////////////////////////////////////////////////////////////////////////////
    // Downstream with Tributaries
    public static int traceOutLight(
-       NUMBER start_link_id
-      ,NUMBER start_percentage
-      ,NUMBER start_node_id
-      ,NUMBER cost_threshold
+       oracle.sql.CHAR   network_name
+      ,oracle.sql.NUMBER start_link_id
+      ,oracle.sql.NUMBER start_percentage
+      ,oracle.sql.NUMBER start_node_id
+      ,oracle.sql.NUMBER cost_threshold
       
    ) throws Exception {
       
       if ( start_link_id == null || start_percentage == null || cost_threshold == null) {
          return -1;
-
       }
       
       LODNetworkConstraint mainstem_constraint_dn = new coastCheckConstraintDown();
@@ -112,13 +113,12 @@ public class navigator2_main {
       
       initial_percentage = start_percentage.doubleValue();
       
-      String networkName = "PLUSFLOWLINE";
-      setConfig(networkName);      
+      setConfig(network_name.getString());      
       
       NetworkIO reader = LODNetworkManager.getCachedNetworkIO(
           conn
-         ,networkName
-         ,networkName
+         ,network_name.getString()
+         ,network_name.getString()
          ,null
       );
       NetworkAnalyst analyst = LODNetworkManager.getNetworkAnalyst(reader);
@@ -129,7 +129,23 @@ public class navigator2_main {
          ,start_percentage.doubleValue()
       );
       
-      LogicalLightSubPath [] paths = analyst.traceOutLight(
+      // Costing Changes
+      LinkCostCalculator [] lccs = {
+          new Calculator_Cost()
+         ,new Calculator_LengthKm()
+         ,new Calculator_FlowTimeDay()
+      };
+      analyst.setLinkCostCalculators(lccs);
+      
+      // Use default node cost calculator
+      NodeCostCalculator [] nccs = {
+          DefaultNodeCostCalculator.getNodeCostCalculator()
+         ,DefaultNodeCostCalculator.getNodeCostCalculator() 
+         ,DefaultNodeCostCalculator.getNodeCostCalculator() 
+      };
+      analyst.setNodeCostCalculators(nccs);
+      
+      LogicalLightSubPath [] subPaths = analyst.traceOutLight(
           startingPoN
          ,cost_threshold.doubleValue()
          ,1
@@ -139,41 +155,49 @@ public class navigator2_main {
          ,false
       );
 
-      int numPaths = paths.length;
+      int numSubPaths = subPaths.length;
 
-      if (paths == null || numPaths == 0) {
+      if (subPaths == null || numSubPaths == 0) {
          return -2;
-         
       }
       
-      OraclePreparedStatement opstmt = null;
-      opstmt = (OraclePreparedStatement) conn.prepareStatement(
-         "INSERT INTO nhdplus_navigation2.tmp_navigation_subpath VALUES(?,?,?,?,?,?)"
+      OraclePreparedStatement opstmt_links = null;
+      opstmt_links = (OraclePreparedStatement) conn.prepareStatement(
+         "INSERT INTO nhdplus_navigation2.tmp_navigation_links(link_index,link_id,link_start_clip_percentage,link_end_clip_percentage,end_node_id,link_network_distancekm,link_network_flowtimeday) VALUES (?,?,?,?,?,?,?)"
       );
-      opstmt.setExecuteBatch(2000);
+      opstmt_links.setExecuteBatch(2000);
+      
       int numOfRowsInserted = 0;
       
-      for(int i=0; i < numPaths; i++) {
-         double path_start_percentage = paths[i].getStartPercentage();
-         double path_end_percentage   = paths[i].getEndPercentage();
+      for(int i=0; i < numSubPaths; i++) {
+         double path_start_percentage = subPaths[i].getStartPercentage();
+         double path_end_percentage   = subPaths[i].getEndPercentage();
       
          if (path_start_percentage == 1.0 && path_end_percentage == 1.0 ) {
             
          } else {
-            LogicalLightPath parent_path = paths[i].getReferenceLightPath();
-            opstmt.setLong  (1,parent_path.getLastLinkId());
-            opstmt.setDouble(2,path_start_percentage);
-            opstmt.setDouble(3,path_end_percentage);
-            opstmt.setLong  (4,parent_path.getEndNodeId());
-            double[] path_costs = paths[i].getCosts();
-            opstmt.setDouble(5,path_costs[0]);
-            opstmt.setInt(6,0);
-            numOfRowsInserted = opstmt.executeUpdate();
+            opstmt_links.setInt   (1,i);
+            
+            LogicalLightPath parent_path = subPaths[i].getReferenceLightPath();
+            opstmt_links.setLong  (2,parent_path.getLastLinkId());
+            
+            opstmt_links.setDouble(3,path_start_percentage);
+            opstmt_links.setDouble(4,path_end_percentage);
+            opstmt_links.setLong  (5,parent_path.getEndNodeId());
+            
+            double[] path_costs = subPaths[i].getCosts();
+            opstmt_links.setDouble(6,path_costs[1]);
+            opstmt_links.setDouble(7,path_costs[2]);
+            
+            numOfRowsInserted = opstmt_links.executeUpdate(); 
          }
       }
       
-      numOfRowsInserted = opstmt.sendBatch();
-      return numPaths;
+      numOfRowsInserted = opstmt_links.sendBatch();
+      
+      opstmt_links.close();
+      
+      return numSubPaths;
 
    }
    
@@ -181,16 +205,15 @@ public class navigator2_main {
    /////////////////////////////////////////////////////////////////////////////
    // Downstream Mainstem
    public static int traceOutLight_mainstem(
-       NUMBER start_link_id
-      ,NUMBER start_percentage
-      ,NUMBER start_node_id
-      ,NUMBER cost_threshold
-      
+       oracle.sql.CHAR   network_name
+      ,oracle.sql.NUMBER start_link_id
+      ,oracle.sql.NUMBER start_percentage
+      ,oracle.sql.NUMBER start_node_id
+      ,oracle.sql.NUMBER cost_threshold
    ) throws Exception {
       
       if ( start_link_id == null || start_percentage == null || cost_threshold == null) {
          return -1;
-
       }
       
       LODNetworkConstraint mainstem_constraint_dn = new mainstemCoastCheckConstraintDown();
@@ -199,13 +222,12 @@ public class navigator2_main {
       
       initial_percentage = start_percentage.doubleValue();
       
-      String networkName = "PLUSFLOWLINE";
-      setConfig(networkName);
+      setConfig(network_name.getString());
       
       NetworkIO reader = LODNetworkManager.getCachedNetworkIO(
           conn
-         ,networkName
-         ,networkName
+         ,network_name.getString()
+         ,network_name.getString()
          ,null
       );
       NetworkAnalyst analyst = LODNetworkManager.getNetworkAnalyst(reader);
@@ -215,8 +237,24 @@ public class navigator2_main {
           start_link_id.longValue()
          ,start_percentage.doubleValue()
       );
-
-      LogicalLightSubPath [] paths = analyst.traceOutLight(
+      
+      // Costing Changes
+      LinkCostCalculator [] lccs = {
+          new Calculator_Cost()
+         ,new Calculator_LengthKm()
+         ,new Calculator_FlowTimeDay()
+      };
+      analyst.setLinkCostCalculators(lccs);
+      
+      // Use default node cost calculator
+      NodeCostCalculator [] nccs = {
+          DefaultNodeCostCalculator.getNodeCostCalculator()
+         ,DefaultNodeCostCalculator.getNodeCostCalculator() 
+         ,DefaultNodeCostCalculator.getNodeCostCalculator() 
+      };
+      analyst.setNodeCostCalculators(nccs);
+      
+      LogicalLightSubPath [] subPaths = analyst.traceOutLight(
           startingPoN
          ,cost_threshold.doubleValue()
          ,1
@@ -225,42 +263,50 @@ public class navigator2_main {
          ,null
          ,false
       );
+      
+      int numSubPaths = subPaths.length;
 
-      int numPaths = paths.length;
-
-      if (paths == null || numPaths == 0) {
+      if (subPaths == null || numSubPaths == 0) {
          return -2;
-         
       }
       
-      OraclePreparedStatement opstmt = null;
-      opstmt = (OraclePreparedStatement) conn.prepareStatement(
-         "INSERT INTO nhdplus_navigation2.tmp_navigation_subpath VALUES(?,?,?,?,?,?)"
+      OraclePreparedStatement opstmt_links = null;
+      opstmt_links = (OraclePreparedStatement) conn.prepareStatement(
+         "INSERT INTO nhdplus_navigation2.tmp_navigation_links(link_index,link_id,link_start_clip_percentage,link_end_clip_percentage,end_node_id,link_network_distancekm,link_network_flowtimeday) VALUES (?,?,?,?,?,?,?)"
       );
-      opstmt.setExecuteBatch(2000);
+      opstmt_links.setExecuteBatch(2000);
+      
       int numOfRowsInserted = 0;
       
-      for(int i=0; i < numPaths; i++) {
-         double path_start_percentage = paths[i].getStartPercentage();
-         double path_end_percentage   = paths[i].getEndPercentage();
+      for(int i=0; i < numSubPaths; i++) {
+         double path_start_percentage = subPaths[i].getStartPercentage();
+         double path_end_percentage   = subPaths[i].getEndPercentage();
       
          if (path_start_percentage == 1.0 && path_end_percentage == 1.0 ) {
             
          } else {
-            LogicalLightPath parent_path = paths[i].getReferenceLightPath();
-            opstmt.setLong  (1,parent_path.getLastLinkId());
-            opstmt.setDouble(2,path_start_percentage);
-            opstmt.setDouble(3,path_end_percentage);
-            opstmt.setLong  (4,parent_path.getEndNodeId());
-            double[] path_costs = paths[i].getCosts();
-            opstmt.setDouble(5,path_costs[0]);
-            opstmt.setInt(6,0);
-            numOfRowsInserted = opstmt.executeUpdate();
+            opstmt_links.setInt   (1,i);
+            
+            LogicalLightPath parent_path = subPaths[i].getReferenceLightPath();
+            opstmt_links.setLong  (2,parent_path.getLastLinkId());
+            
+            opstmt_links.setDouble(3,path_start_percentage);
+            opstmt_links.setDouble(4,path_end_percentage);
+            opstmt_links.setLong  (5,parent_path.getEndNodeId());
+            
+            double[] path_costs = subPaths[i].getCosts();
+            opstmt_links.setDouble(6,path_costs[1]);
+            opstmt_links.setDouble(7,path_costs[2]);
+            
+            numOfRowsInserted = opstmt_links.executeUpdate();  
          }
       }
       
-      numOfRowsInserted = opstmt.sendBatch();
-      return numPaths;
+      numOfRowsInserted = opstmt_links.sendBatch();
+      
+      opstmt_links.close();
+      
+      return numSubPaths;
 
    }
    
@@ -268,11 +314,11 @@ public class navigator2_main {
    /////////////////////////////////////////////////////////////////////////////
    // Upstream with Tributaries
    public static int traceInLight(
-       NUMBER start_link_id
-      ,NUMBER start_percentage
-      ,NUMBER start_node_id
-      ,NUMBER cost_threshold
-      
+       oracle.sql.CHAR   network_name
+      ,oracle.sql.NUMBER start_link_id
+      ,oracle.sql.NUMBER start_percentage
+      ,oracle.sql.NUMBER start_node_id
+      ,oracle.sql.NUMBER cost_threshold
    ) throws Exception {
       
       if ( start_link_id == null || start_percentage == null || cost_threshold == null) {
@@ -284,13 +330,12 @@ public class navigator2_main {
       
       initial_percentage = start_percentage.doubleValue();
       
-      String networkName = "PLUSFLOWLINE";
-      setConfig(networkName);
+      setConfig(network_name.getString());
       
       NetworkIO reader = LODNetworkManager.getCachedNetworkIO(
           conn
-         ,networkName
-         ,networkName
+         ,network_name.getString()
+         ,network_name.getString()
          ,null
       );
       NetworkAnalyst analyst = LODNetworkManager.getNetworkAnalyst(reader);
@@ -298,6 +343,7 @@ public class navigator2_main {
       long   num_start_link_id    = start_link_id.longValue();
       double num_start_percentage = start_percentage.doubleValue();
       long   num_start_node_id    = start_node_id.longValue();
+      
       PointOnNet[] startingPoN = new PointOnNet[1];
       
       if (num_start_percentage == 0.0) {
@@ -309,11 +355,26 @@ public class navigator2_main {
          startingPoN[0] = new PointOnNet(
              num_start_link_id
             ,num_start_percentage
-         );
-         
+         );  
       }
       
-      LogicalLightSubPath [] paths = analyst.traceInLight(
+      // Costing Changes
+      LinkCostCalculator [] lccs = {
+          new Calculator_Cost()
+         ,new Calculator_LengthKm()
+         ,new Calculator_FlowTimeDay()
+      };
+      analyst.setLinkCostCalculators(lccs);
+      
+      // Use default node cost calculator
+      NodeCostCalculator [] nccs = {
+          DefaultNodeCostCalculator.getNodeCostCalculator()
+         ,DefaultNodeCostCalculator.getNodeCostCalculator() 
+         ,DefaultNodeCostCalculator.getNodeCostCalculator() 
+      };
+      analyst.setNodeCostCalculators(nccs); 
+
+      LogicalLightSubPath [] subPaths = analyst.traceInLight(
           startingPoN
          ,cost_threshold.doubleValue()
          ,1
@@ -323,64 +384,69 @@ public class navigator2_main {
          ,false
       );
 
-      int numPaths = paths.length;
-
-      if (paths == null || numPaths == 0) {
+      int numOfRowsInserted = 0;
+      int numSubPaths = subPaths.length;      
+      if (subPaths == null || numSubPaths == 0) {
          return -2;
-         
       }
       
-      OraclePreparedStatement opstmt = null;
-      opstmt = (OraclePreparedStatement) conn.prepareStatement(
-         "INSERT INTO nhdplus_navigation2.tmp_navigation_subpath VALUES(?,?,?,?,?,?)"
+      OraclePreparedStatement opstmt_links = null;
+      opstmt_links = (OraclePreparedStatement) conn.prepareStatement(
+         "INSERT INTO nhdplus_navigation2.tmp_navigation_links(link_index,link_id,link_start_clip_percentage,link_end_clip_percentage,end_node_id,link_network_distancekm,link_network_flowtimeday) VALUES (?,?,?,?,?,?,?)"
       );
-      opstmt.setExecuteBatch(2000);
-      int numOfRowsInserted = 0;
+      opstmt_links.setExecuteBatch(2000);
       
-      for(int i=0; i < numPaths; i++) {
-         LogicalLightPath parent_path = paths[i].getReferenceLightPath();
-         double path_start_percentage = paths[i].getStartPercentage();
-         double path_end_percentage   = paths[i].getEndPercentage();
+      for(int i=0; i < numSubPaths; i++) {
+         LogicalLightPath parent_path = subPaths[i].getReferenceLightPath();
+         double path_start_percentage = subPaths[i].getStartPercentage();
+         double path_end_percentage   = subPaths[i].getEndPercentage();
          long   path_first_link_id    = parent_path.getFirstLinkId();
          long   path_start_node_id    = parent_path.getStartNodeId();
-         
+
          if (path_start_percentage == 0.0 && path_end_percentage == 0.0 ) {
             // skip insert
-            
+
          } else if (num_start_percentage != 1.0 && path_first_link_id == num_start_link_id && path_end_percentage == 1.0 && path_start_percentage == 0.0) {
             // skip insert
-            
+
          } else {
-            opstmt.setLong  (1,path_first_link_id);
-            opstmt.setDouble(2,path_end_percentage);
-            opstmt.setDouble(3,path_start_percentage);
-            opstmt.setLong  (4,path_start_node_id);
-            double[] path_costs = paths[i].getCosts();
-            opstmt.setDouble(5,path_costs[0]);
-            opstmt.setInt(6,0);
-            numOfRowsInserted = opstmt.executeUpdate();
+            
+            opstmt_links.setInt   (1,i);
+            opstmt_links.setLong  (2,path_first_link_id);
+            opstmt_links.setDouble(3,path_end_percentage);
+            opstmt_links.setDouble(4,path_start_percentage);
+            opstmt_links.setLong  (5,path_start_node_id);
+            double[] path_costs = subPaths[i].getCosts();
+            opstmt_links.setDouble(6,path_costs[1]);
+            opstmt_links.setDouble(7,path_costs[2]);
+            
+            numOfRowsInserted = opstmt_links.executeUpdate();
          }
       }
-      
-      numOfRowsInserted = opstmt.sendBatch();
-      return numPaths;
 
+      numOfRowsInserted = opstmt_links.sendBatch();
+
+      opstmt_links.close();
+
+      return numSubPaths;
+      
    }
 
    /////////////////////////////////////////////////////////////////////////////
    /////////////////////////////////////////////////////////////////////////////
    // Upstream Mainstem
    public static int traceInLight_mainstem(
-       NUMBER start_link_id
-      ,NUMBER start_percentage
-      ,NUMBER start_node_id
-      ,NUMBER cost_threshold
+       oracle.sql.CHAR   network_name
+      ,oracle.sql.NUMBER start_link_id
+      ,oracle.sql.NUMBER start_percentage
+      ,oracle.sql.NUMBER start_node_id
+      ,oracle.sql.NUMBER cost_threshold
       
    ) throws Exception {
       
       if ( start_link_id == null || start_percentage == null || cost_threshold == null) {
+         //System.out.println(">>-1 " + start_percentage);
          return -1;
-
       }
       
       LODNetworkConstraint mainstem_constraint_up = new mainstemConstraintUp();
@@ -389,13 +455,12 @@ public class navigator2_main {
       
       initial_percentage = start_percentage.doubleValue();
       
-      String networkName = "PLUSFLOWLINE";
-      setConfig(networkName);
+      setConfig(network_name.getString());
       
       NetworkIO reader = LODNetworkManager.getCachedNetworkIO(
           conn
-         ,networkName
-         ,networkName
+         ,network_name.getString()
+         ,network_name.getString()
          ,null
       );
       NetworkAnalyst analyst = LODNetworkManager.getNetworkAnalyst(reader);
@@ -403,6 +468,7 @@ public class navigator2_main {
       long   num_start_link_id    = start_link_id.longValue();
       double num_start_percentage = start_percentage.doubleValue();
       long   num_start_node_id    = start_node_id.longValue();
+      
       PointOnNet[] startingPoN = new PointOnNet[1];
       if (num_start_percentage == 0.0) {
          startingPoN[0] = new PointOnNet(
@@ -417,7 +483,23 @@ public class navigator2_main {
          
       }
       
-      LogicalLightSubPath [] paths = analyst.traceInLight(
+      // Costing Changes
+      LinkCostCalculator [] lccs = {
+          new Calculator_Cost()
+         ,new Calculator_LengthKm()
+         ,new Calculator_FlowTimeDay()
+      };
+      analyst.setLinkCostCalculators(lccs);
+      
+      // Use default node cost calculator
+      NodeCostCalculator [] nccs = {
+          DefaultNodeCostCalculator.getNodeCostCalculator()
+         ,DefaultNodeCostCalculator.getNodeCostCalculator() 
+         ,DefaultNodeCostCalculator.getNodeCostCalculator() 
+      };
+      analyst.setNodeCostCalculators(nccs); 
+      
+      LogicalLightSubPath [] subPaths = analyst.traceInLight(
           startingPoN
          ,cost_threshold.doubleValue()
          ,1
@@ -427,47 +509,53 @@ public class navigator2_main {
          ,false
       );
       
-      int numPaths = paths.length;
-
-      if (paths == null || numPaths == 0) {
+      int numOfRowsInserted = 0;
+      int numSubPaths = subPaths.length;      
+      if (subPaths == null || numSubPaths == 0) {
+         //System.out.println(">>-2 " + numSubPaths);
          return -2;
-         
       }
       
-      OraclePreparedStatement opstmt = null;
-      opstmt = (OraclePreparedStatement) conn.prepareStatement(
-         "INSERT INTO nhdplus_navigation2.tmp_navigation_subpath VALUES(?,?,?,?,?,?)"
+      OraclePreparedStatement opstmt_links = null;
+      opstmt_links = (OraclePreparedStatement) conn.prepareStatement(
+         "INSERT INTO nhdplus_navigation2.tmp_navigation_links(link_index,link_id,link_start_clip_percentage,link_end_clip_percentage,end_node_id,link_network_distancekm,link_network_flowtimeday) VALUES (?,?,?,?,?,?,?)"
       );
-      opstmt.setExecuteBatch(2000);
-      int numOfRowsInserted = 0;
+      opstmt_links.setExecuteBatch(2000);
       
-      for(int i=0; i < numPaths; i++) {
-         LogicalLightPath parent_path = paths[i].getReferenceLightPath();
-         double path_start_percentage = paths[i].getStartPercentage();
-         double path_end_percentage   = paths[i].getEndPercentage();
+      for(int i=0; i < numSubPaths; i++) {
+         LogicalLightPath parent_path = subPaths[i].getReferenceLightPath();
+         double path_start_percentage = subPaths[i].getStartPercentage();
+         double path_end_percentage   = subPaths[i].getEndPercentage();
          long   path_first_link_id    = parent_path.getFirstLinkId();
          long   path_start_node_id    = parent_path.getStartNodeId();
-      
+
          if (path_start_percentage == 0.0 && path_end_percentage == 0.0 ) {
             // skip insert
-            
+
          } else if (num_start_percentage != 1.0 && path_first_link_id == num_start_link_id && path_end_percentage == 1.0 && path_start_percentage == 0.0) {
             // skip insert
-            
+
          } else {
-            opstmt.setLong  (1,path_first_link_id);
-            opstmt.setDouble(2,path_end_percentage);
-            opstmt.setDouble(3,path_start_percentage);
-            opstmt.setLong  (4,path_start_node_id);
-            double[] path_costs = paths[i].getCosts();
-            opstmt.setDouble(5,path_costs[0]);
-            opstmt.setInt(6,0);
-            numOfRowsInserted = opstmt.executeUpdate();
+            
+            opstmt_links.setInt   (1,i);
+            opstmt_links.setLong  (2,path_first_link_id);
+            opstmt_links.setDouble(3,path_end_percentage);
+            opstmt_links.setDouble(4,path_start_percentage);
+            opstmt_links.setLong  (5,path_start_node_id);
+            double[] path_costs = subPaths[i].getCosts();
+            //System.out.println(i + " " + path_costs[1]);
+            opstmt_links.setDouble(6,path_costs[1]);
+            opstmt_links.setDouble(7,path_costs[2]);
+            
+            numOfRowsInserted = opstmt_links.executeUpdate();
          }
       }
-      
-      numOfRowsInserted = opstmt.sendBatch();
-      return numPaths;
+
+      numOfRowsInserted = opstmt_links.sendBatch();
+
+      opstmt_links.close();
+
+      return numSubPaths;
 
    }
 
@@ -506,12 +594,21 @@ public class navigator2_main {
             return true;
             
          } else {
-            long hydroseq   = nextLink.getId();
+            long hydrosequence = nextLink.getId();
             
             CategorizedUserData cud = currentLink.getCategorizedUserData();
-            long uphydroseq = Long.valueOf( (Integer) cud.getUserData(0).get(3));
+            // 0 is divergence
+            // 1 is downhydrosequence
+            // 2 is fcode
+            // 3 is flowtimeday
+            // 4 is lengthkm
+            // 5 is uphydrosequence
+            Double dfoo = (Double) cud.getUserData(0).get(5);
+            Long ifoo = dfoo.longValue();
+            long uphydrosequence = ifoo;
+            //System.out.println(">> " + uphydrosequence);
             
-            if ( uphydroseq == hydroseq ) {
+            if ( uphydrosequence == hydrosequence ) {
                isTurnValid = true; 
                
             }
@@ -580,10 +677,6 @@ public class navigator2_main {
          return partiallyExpandedNodes.containsKey(nextNodeId);
       }
       
-      // 0 is divergence
-      // 1 is dnhydroseq
-      // 2 is fcode
-      // 3 is uphydroseq
       public boolean isSatisfied(LODAnalysisInfo info) {
          boolean isTurnValid = false;
          
@@ -594,11 +687,21 @@ public class navigator2_main {
             return true;
             
          } else {
-            long hydroseq   = nextLink.getId();
+            long hydrosequence = nextLink.getId();
             
             CategorizedUserData curr_cud = currentLink.getCategorizedUserData();
             CategorizedUserData next_cud = nextLink.getCategorizedUserData();
-            long dnhydroseq = Long.valueOf( (Integer) curr_cud.getUserData(0).get(1));
+            
+            // 0 is divergence
+            // 1 is downhydrosequence
+            // 2 is fcode
+            // 3 is flowtimeday
+            // 4 is lengthkm
+            // 5 is uphydrosequence           
+            Double dfoo = (Double) curr_cud.getUserData(0).get(1);
+            Long ifoo = dfoo.longValue();
+            long downhydrosequence = ifoo;
+            
             int currentfcode = (Integer) curr_cud.getUserData(0).get(2);
             int nextfcode    = (Integer) next_cud.getUserData(0).get(2);
             
@@ -607,13 +710,10 @@ public class navigator2_main {
                isTurnValid = false;
                
             } else {
-               if ( dnhydroseq == hydroseq ) {
+               if ( downhydrosequence == hydrosequence ) {
                   isTurnValid = true; 
-                  
-               }
-                  
+               }  
             }
-
          } 
 
          //update partiallyExpandedNodes
@@ -678,10 +778,6 @@ public class navigator2_main {
          return partiallyExpandedNodes.containsKey(nextNodeId);
       }
       
-      // 0 is divergence
-      // 1 is dnhydroseq
-      // 2 is fcode
-      // 3 is uphydroseq
       public boolean isSatisfied(LODAnalysisInfo info) {
          boolean isTurnValid = false;
          
@@ -694,6 +790,13 @@ public class navigator2_main {
          } else {
             CategorizedUserData curr_cud = currentLink.getCategorizedUserData();
             CategorizedUserData next_cud = nextLink.getCategorizedUserData();
+
+            // 0 is divergence
+            // 1 is downhydrosequence
+            // 2 is fcode
+            // 3 is flowtimeday
+            // 4 is lengthkm
+            // 5 is uphydrosequence
             int currentfcode = (Integer) curr_cud.getUserData(0).get(2);
             int nextfcode    = (Integer) next_cud.getUserData(0).get(2);
             
@@ -748,27 +851,26 @@ public class navigator2_main {
    /////////////////////////////////////////////////////////////////////////////
    /////////////////////////////////////////////////////////////////////////////
    public static int shortestPath(
-       NUMBER start_link_id
-      ,NUMBER start_percentage
-      ,NUMBER start_node_id
-      ,NUMBER stop_link_id
-      ,NUMBER stop_percentage
+       oracle.sql.CHAR   network_name
+      ,oracle.sql.NUMBER start_link_id
+      ,oracle.sql.NUMBER start_percentage
+      ,oracle.sql.NUMBER start_node_id
+      ,oracle.sql.NUMBER stop_link_id
+      ,oracle.sql.NUMBER stop_percentage
       
    ) throws Exception {
       
       if ( start_link_id == null || start_percentage == null) {
          return -1;
-
       }
       
-      String networkName = "PLUSFLOWLINE";
-      setConfig(networkName); 
+      setConfig(network_name.getString());
       
       Connection conn = (new OracleDriver()).defaultConnection();
       NetworkIO reader = LODNetworkManager.getCachedNetworkIO(
           conn
-         ,networkName
-         ,networkName
+         ,network_name.getString()
+         ,network_name.getString()
          ,null
       );
       NetworkAnalyst analyst = LODNetworkManager.getNetworkAnalyst(reader);
@@ -786,12 +888,19 @@ public class navigator2_main {
       );
       
       // Costing Changes
-      LinkCostCalculator [] lccs = {new MainstemCalculator() };
+      LinkCostCalculator [] lccs = {
+          new Calculator_CostPP() 
+         ,new Calculator_LengthKm()
+         ,new Calculator_FlowTimeDay() 
+      };
       analyst.setLinkCostCalculators(lccs);
       
       // Use default node cost calculator
       NodeCostCalculator [] nccs = {
-          DefaultNodeCostCalculator.getNodeCostCalculator() };
+          DefaultNodeCostCalculator.getNodeCostCalculator()
+         ,DefaultNodeCostCalculator.getNodeCostCalculator() 
+         ,DefaultNodeCostCalculator.getNodeCostCalculator() 
+      };
       analyst.setNodeCostCalculators(nccs); 
       
       LogicalSubPath subpath = analyst.shortestPathDijkstra(
@@ -803,88 +912,219 @@ public class navigator2_main {
       
       if (subpath == null) {
          return -2;
-         
       }
       
       LogicalPath path = subpath.getReferencePath();
-      
-      long [] links = path.getLinkIds();
-      int sp_start_link = subpath.getStartLinkIndex();
-      int sp_end_link = subpath.getEndLinkIndex();
+      int    sp_start_link_idx   = subpath.getStartLinkIndex();
+      int    sp_end_link_idx     = subpath.getEndLinkIndex();
       double sp_start_percentage = subpath.getStartPercentage();
-      double sp_end_percentage = subpath.getEndPercentage();
-      double [] sp_costs = subpath.getCosts();
+      double sp_end_percentage   = subpath.getEndPercentage();
+      double dbltemp             = 0;
       
-      OraclePreparedStatement opstmt = null;
-      opstmt = (OraclePreparedStatement) conn.prepareStatement(
-         "INSERT INTO nhdplus_navigation2.tmp_navigation_subpath VALUES(?,?,?,?,?,?)"
-      );
-      opstmt.setExecuteBatch(2000);
+      long [] nodes = path.getNodeIds();
+      int node_count = nodes.length;
       
       int numOfRowsInserted = 0;
-      double set3 = 0;
-      double set5 = 0;
-      int link_count = links.length;
       
-      for(int i=0; i < link_count; i++) {
-         opstmt.setLong(1,links[i]);
+      if ( node_count == 2 ) {
+         OraclePreparedStatement opstmt_links = null;
+         opstmt_links = (OraclePreparedStatement) conn.prepareStatement(
+            "INSERT INTO nhdplus_navigation2.tmp_navigation_links(link_index,link_id,link_start_clip_percentage,link_end_clip_percentage,link_network_distancekm,link_network_flowtimeday) VALUES (?,?,?,?,?,?)"
+         );
+         opstmt_links.setExecuteBatch(2000);
          
-         opstmt.setDouble(2,0.0);
+         opstmt_links.setInt   (1,1);
+         opstmt_links.setLong  (2,path.getFirstLinkId());
+         opstmt_links.setDouble(3,sp_start_percentage);
+         opstmt_links.setDouble(4,sp_end_percentage);
+         opstmt_links.setDouble(5,subpath.getCosts()[1]);
+         opstmt_links.setDouble(6,subpath.getCosts()[2]);
+            
+         numOfRowsInserted = opstmt_links.executeUpdate();
+         numOfRowsInserted = opstmt_links.sendBatch();
+
+      } else {
+         OraclePreparedStatement opstmt_nodes = null;
+         opstmt_nodes = (OraclePreparedStatement) conn.prepareStatement(
+            "INSERT INTO nhdplus_navigation2.tmp_navigation_nodes(node_index,node_id,end_cost,end_network_distancekm,end_network_flowtimeday) VALUES (?,?,?,?,?)"
+         );
+         opstmt_nodes.setExecuteBatch(2000);
          
-         if ( i == sp_start_link ) {
-            set3 = sp_start_percentage;
-         } else if (i == sp_end_link ) {
-            set3 = sp_end_percentage;
-         } else {
-            set3 = 1.00;
+         for(int i=0; i < node_count; i++) {
+            // node_index
+            opstmt_nodes.setInt(1,i);
+            
+            // node_id
+            opstmt_nodes.setLong(2,nodes[i]);
+            
+            // end_cost
+            opstmt_nodes.setDouble(3,subpath.getCostsToNode(i)[0]);
+            
+            // end_network_distancekm cost
+            opstmt_nodes.setDouble(4,subpath.getCostsToNode(i)[1]);
+
+            // end_network_flowtimeday cost
+            opstmt_nodes.setDouble(5,subpath.getCostsToNode(i)[2]);
+            
+            numOfRowsInserted = opstmt_nodes.executeUpdate();
+            
          }
-         opstmt.setDouble(3,set3);
+         numOfRowsInserted = opstmt_nodes.sendBatch();      
+         nodes = null;
          
-         opstmt.setLong(4,0);
+         long [] links = path.getLinkIds();
+         int link_count = links.length;
          
-         if (i == sp_end_link ) {
-            set5 = sp_costs[0];
-         } else {
-            set5 = 0.0;
+         OraclePreparedStatement opstmt_links = null;
+         opstmt_links = (OraclePreparedStatement) conn.prepareStatement(
+            "INSERT INTO nhdplus_navigation2.tmp_navigation_links(link_index,link_id,link_start_clip_percentage,link_end_clip_percentage) VALUES (?,?,?,?)"
+         );
+         opstmt_links.setExecuteBatch(2000);
+
+         for(int i=0; i < link_count; i++) {
+            opstmt_links.setInt   (1,i);
+            opstmt_links.setLong  (2,links[i]);
+            
+            if ( i == sp_start_link_idx ) {
+               dbltemp = sp_start_percentage;
+            } else {
+               dbltemp = 0;
+            }
+            opstmt_links.setDouble(3,dbltemp);
+            
+            if (i == sp_end_link_idx ) {
+               dbltemp = sp_end_percentage;
+            } else {
+               dbltemp = 1.00;
+            }
+            opstmt_links.setDouble(4,dbltemp);
+            
+            numOfRowsInserted = opstmt_links.executeUpdate();
          }
-         opstmt.setDouble(5,set5);
          
-         opstmt.setInt(6,0);
+         numOfRowsInserted = opstmt_links.sendBatch();
          
-         numOfRowsInserted = opstmt.executeUpdate();
+         opstmt_nodes.close();
+         opstmt_links.close();
+         
       }
       
-      numOfRowsInserted = opstmt.sendBatch();
-      return link_count;
+      return numOfRowsInserted;
 
    }
    
    /////////////////////////////////////////////////////////////////////////////
    /////////////////////////////////////////////////////////////////////////////
-   private static class MainstemCalculator implements LinkCostCalculator {  
+   private static class Calculator_Cost implements LinkCostCalculator {  
+      
+      public double getLinkCost(LODAnalysisInfo analysisInfo) {
+         
+         LogicalLink nextLink    = analysisInfo.getNextLink(); 
+         return nextLink.getCost();
+         
+      }
+      
+      public int getNumberOfUserObjects() { return 0 ; }
+
+      public int[] getUserDataCategories() {
+         return null;
+      }
+      
+   }
+   
+   private static class Calculator_CostPP implements LinkCostCalculator {  
       
       public double getLinkCost(LODAnalysisInfo analysisInfo) {
          
          LogicalLink currentLink = analysisInfo.getCurrentLink();
-         LogicalLink nextLink    = analysisInfo.getNextLink();  
+         LogicalLink nextLink    = analysisInfo.getNextLink(); 
+          
          double linkCost = nextLink.getCost();
          
          if (analysisInfo.getCurrentLink() != null) {
             
-            long hydroseq   = nextLink.getId();
+            long hydrosequence = nextLink.getId();
             
             CategorizedUserData cud = currentLink.getCategorizedUserData();
-            long dnhydroseq = Long.valueOf( (Integer) cud.getUserData(0).get(1));
             
-            if ( dnhydroseq != hydroseq ) {
+            // 0 is divergence
+            // 1 is downhydrosequence
+            // 2 is fcode
+            // 3 is flowtimeday
+            // 4 is lengthkm
+            // 5 is uphydrosequence
+            Double dfoo = (Double) cud.getUserData(0).get(1);
+            Long ifoo = dfoo.longValue();
+            long downhydrosequence = ifoo;
+            
+            if ( downhydrosequence != hydrosequence ) {
                linkCost = linkCost * 100;
-               
             }
-         
          } 
          
          return linkCost;
-                  
+         
+      }
+      
+      public int getNumberOfUserObjects() { return 0 ; }
+
+      public int[] getUserDataCategories() {
+         return null;
+      }
+      
+   }
+   
+   private static class Calculator_LengthKm implements LinkCostCalculator {  
+      
+      public double getLinkCost(LODAnalysisInfo analysisInfo) {
+         
+         LogicalLink nextLink         = analysisInfo.getNextLink();
+         CategorizedUserData next_cud = nextLink.getCategorizedUserData();
+         
+         // 0 is divergence
+         // 1 is downhydrosequence
+         // 2 is fcode
+         // 3 is flowtimeday
+         // 4 is lengthkm
+         // 5 is uphydrosequence
+         double linkCost = (Double) next_cud.getUserData(0).get(4);
+          
+         return linkCost;
+         
+      }
+      
+      public int getNumberOfUserObjects() { return 0 ; }
+
+      public int[] getUserDataCategories() {
+         return null;
+      }
+      
+   }
+   
+   private static class Calculator_FlowTimeDay implements LinkCostCalculator {  
+      
+      public double getLinkCost(LODAnalysisInfo analysisInfo) {
+         
+         LogicalLink currLink = analysisInfo.getCurrentLink();
+         LogicalLink nextLink = analysisInfo.getNextLink();
+         
+         CategorizedUserData next_cud = nextLink.getCategorizedUserData();
+         
+         // 0 is divergence
+         // 1 is downhydrosequence
+         // 2 is fcode
+         // 3 is flowtimeday
+         // 4 is lengthkm
+         // 5 is uphydrosequence
+         
+         double nextFlowTimeDayCost = (Double) next_cud.getUserData(0).get(3);
+         
+         if ( nextFlowTimeDayCost < 0 ) {
+            return -10000000;
+         }
+          
+         return nextFlowTimeDayCost;
+         
       }
       
       public int getNumberOfUserObjects() { return 0 ; }
